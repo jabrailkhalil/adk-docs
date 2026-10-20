@@ -1,0 +1,69 @@
+name: Author SQLite released-wheel and docs verification
+on:
+  push:
+    branches: [validation/sqlite-release-oct20]
+permissions:
+  contents: read
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify production source identity
+        run: git diff --exit-code 47191b0f7208a81b0a0c5a8da6a0379f7915d2bc -- . ':!validation' ':!.github/workflows/author-sqlite-release-oct20.yml'
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt beautifulsoup4
+      - run: mkdocs build --strict
+      - name: Verify rendered tab ownership
+        run: |
+          python - <<'PY'
+          from bs4 import BeautifulSoup
+          from pathlib import Path
+          soup = BeautifulSoup(Path('site/runtime/api-server/index.html').read_text(), 'html.parser')
+          tabs = soup.select_one('.tabbed-set')
+          assert tabs is not None
+          assert [x.get_text(strip=True) for x in tabs.select('.tabbed-labels label')] == ['Python', 'TypeScript', 'Go', 'Java']
+          panels = tabs.select('.tabbed-content > .tabbed-block')
+          assert len(panels) == 4
+          text = panels[0].get_text(' ', strip=True)
+          for expected in ['memory://', 'sqlite://', 'sqlite:///', 'sqlite:///:memory:', 'sqlite:///sessions.db', 'v2.12.0', 'google-adk[db]']:
+              assert expected in text, expected
+          assert all('google-adk[db]' not in p.get_text() for p in panels[1:])
+          print('All four language tabs preserved; versioned SQLite paragraph is Python-only.')
+          PY
+  released-wheel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Install and attest the published release
+        run: |
+          pip download --only-binary=:all: --no-deps google-adk==2.12.0 --dest /tmp/adk-wheel
+          sha256sum /tmp/adk-wheel/*.whl | tee wheel-sha256.txt
+          pip install 'google-adk[db]==2.12.0'
+          pip freeze | tee installed-packages.txt
+          adk api_server --help | tee api-server-help.txt
+          grep -- '--session_service_uri' api-server-help.txt
+      - name: Real API server and process-restart probes
+        run: python validation/sqlite_release_probe.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: released-wheel-receipt
+          path: |
+            release-probe.json
+            wheel-sha256.txt
+            installed-packages.txt
+            api-server-help.txt
+          if-no-files-found: warn
