@@ -20,6 +20,7 @@ root_agent = EchoAgent(name="echo_agent")
 
 def server(uri, agents_dir, mode):
     from fastapi.testclient import TestClient
+    from google.adk.cli.api_server import CreateSessionRequest
     from google.adk.cli.fast_api import get_fast_api_app
 
     assert importlib.metadata.version('google-adk') == '2.12.0'
@@ -31,8 +32,11 @@ def server(uri, agents_dir, mode):
     session_path = '/apps/echo_app/users/test_user/sessions/test_session'
     with TestClient(app) as client:
         if mode == 'create':
-            created = client.post(session_path, json={'state': {'witness': uri}})
+            payload = CreateSessionRequest(session_id='test_session', state={'witness': uri})
+            created = client.post('/apps/echo_app/users/test_user/sessions',
+                                  json=payload.model_dump(by_alias=True, exclude_none=True))
             assert created.status_code == 200, created.text
+            assert created.json()['id'] == 'test_session', created.text
             for text in ('one', 'two'):
                 response = client.post('/run', json={
                     'appName': 'echo_app', 'userId': 'test_user',

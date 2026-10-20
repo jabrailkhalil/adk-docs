@@ -28,8 +28,9 @@ jobs:
           soup = BeautifulSoup(Path('site/runtime/api-server/index.html').read_text(), 'html.parser')
           tabs = soup.select_one('.tabbed-set')
           assert tabs is not None
-          assert [x.get_text(strip=True) for x in tabs.select('.tabbed-labels label')] == ['Python', 'TypeScript', 'Go', 'Java']
-          panels = tabs.select('.tabbed-content > .tabbed-block')
+          labels = [x.get_text(strip=True) for x in tabs.find('div', class_='tabbed-labels', recursive=False).find_all('label', recursive=False)]
+          assert labels == ['Python', 'TypeScript', 'Go', 'Java'], labels
+          panels = tabs.find('div', class_='tabbed-content', recursive=False).find_all('div', class_='tabbed-block', recursive=False)
           assert len(panels) == 4
           text = panels[0].get_text(' ', strip=True)
           for expected in ['memory://', 'sqlite://', 'sqlite:///', 'sqlite:///:memory:', 'sqlite:///sessions.db', 'v2.12.0', 'google-adk[db]']:
@@ -37,6 +38,12 @@ jobs:
           assert all('google-adk[db]' not in p.get_text() for p in panels[1:])
           print('All four language tabs preserved; versioned SQLite paragraph is Python-only.')
           PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rendered-api-server-page
+          path: site/runtime/api-server/index.html
+          if-no-files-found: warn
   released-wheel:
     runs-on: ubuntu-latest
     timeout-minutes: 15
